@@ -215,7 +215,8 @@
 
         async function handleLogin() {
             try {
-                await account.createEmailPasswordSession(loginEmailEl.value, loginPasswordEl.value);
+                // *** BUG FIX: Renamed function to createEmailSession ***
+                await account.createEmailSession(loginEmailEl.value, loginPasswordEl.value);
                 await initAuth(); 
             } catch (error) {
                 console.error("Login failed:", error);
@@ -240,7 +241,8 @@
 
                 // 2. Log the new user in (DO THIS *BEFORE* WRITING TO DB)
                 console.log("Step 2: Creating session...");
-                await account.createEmailPasswordSession(email, password);
+                // *** BUG FIX: Renamed function to createEmailSession ***
+                await account.createEmailSession(email, password);
                 console.log("Step 2 SUCCESS.");
 
                 // 3. Add user to the public 'users' collection (NOW THE USER HAS 'Users' ROLE)
@@ -280,8 +282,9 @@
                 if (newUser && (error.code === 401 || error.code === 403 || error.code === 400)) {
                     console.log("Rolling back: Deleting created auth user...");
                     try {
-                        await account.createEmailPasswordSession(email, password);
-                        await account.delete(newUser.$id); 
+                        // *** BUG FIX: Log in first, then call delete() with no args ***
+                        await account.createEmailSession(email, password);
+                        await account.delete(); // Deletes the currently logged-in user
                         console.log("Rollback complete.");
                     } catch (e) {
                         console.error("Rollback failed", e);
@@ -347,7 +350,7 @@
             feedEl.prepend(postEl); 
         }
 
-async function handleAddPost() {
+        async function handleAddPost() {
             const postText = postTextEl.value.trim();
             if (!postText) return;
 
@@ -454,7 +457,6 @@ async function handleAddPost() {
 
         function renderMessage(message, isNew = false) {
             chatPromptEl.style.display = 'none';
-            // *** THIS IS THE LINE I FIXED ***
             const msgEl = document.createElement('div'); 
             
             const isMe = message.senderId === currentUser.$id;
@@ -549,7 +551,7 @@ async function handleAddPost() {
             if (e.key === 'Enter') handleSendMessage();
         });
 
-// --- Initial Load ---
+        // --- Initial Load ---
         initAuth();
 
     </script>
