@@ -114,11 +114,9 @@
 
     <script type="module">
         // --- 1. YOUR IDS ---
-        // These are the IDs you got from your Appwrite project
         const APPWRITE_PROJECT_ID = '690b84bd001410050b0d';
         const APPWRITE_DATABASE_ID = '690b84fe00256ca543e2';
         
-        // These are the collection names (IDs) you created
         const APPWRITE_POSTS_COLLECTION_ID = 'posts';
         const APPWRITE_USERS_COLLECTION_ID = 'users'; 
         const APPWRITE_CHATS_COLLECTION_ID = 'chats'; 
@@ -205,13 +203,11 @@
         // --- 1. Authentication ---
         async function initAuth() {
             try {
-                // Check if a session is "remembered"
                 currentUser = await account.get();
                 userStatusEl.textContent = `Welcome, ${currentUser.name}!`;
                 showView('app');
-                loadApp(); // Load posts, chats, etc.
+                loadApp();
             } catch (error) {
-                // Not logged in
                 console.log("No active session.");
                 showView('login');
             }
@@ -220,13 +216,14 @@
         async function handleLogin() {
             try {
                 await account.createEmailPasswordSession(loginEmailEl.value, loginPasswordEl.value);
-                await initAuth(); // Re-run auth to log in
+                await initAuth(); 
             } catch (error) {
                 console.error("Login failed:", error);
-                showError("Login failed. Check your email or password.");
+                showError(`Login failed: ${error.message}`);
             }
         }
 
+        // *** THIS FUNCTION IS UPDATED WITH BETTER ERROR HANDLING ***
         async function handleRegister() {
             const name = registerNameEl.value;
             const email = registerEmailEl.value;
@@ -235,25 +232,54 @@
                 return showError("All fields are required.");
             }
 
+            let newUser; // To store the user if created
             try {
                 // 1. Create the user account
-                const newUser = await account.create(ID.unique(), email, password, name);
-                
+                console.log("Step 1: Creating auth user...");
+                newUser = await account.create(ID.unique(), email, password, name);
+                console.log("Step 1 SUCCESS:", newUser);
+
                 // 2. Add user to the public 'users' collection
-                // This uses the user's Auth ID as the Document ID
+                console.log("Step 2: Creating user document in 'users' collection...");
                 await databases.createDocument(
                     APPWRITE_DATABASE_ID,
                     APPWRITE_USERS_COLLECTION_ID,
-                    newUser.$id, 
+                    newUser.$id, // Use the user's ID as the document ID
                     { name: name }
                 );
+                console.log("Step 2 SUCCESS.");
 
                 // 3. Log the new user in
+                console.log("Step 3: Creating session...");
                 await account.createEmailPasswordSession(email, password);
-                await initAuth(); // Re-run auth to log in
+                console.log("Step 3 SUCCESS.");
+                
+                await initAuth(); // All done, load the app
+            
             } catch (error) {
                 console.error("Registration failed:", error);
-                showError("Registration failed. This email may already be in use.");
+
+                // *** NEW: Better Error Messages ***
+                let publicError = `Registration failed: ${error.message}`;
+
+                if (error.code === 409) { // Conflict
+                    publicError = "Registration failed. This email is already in use.";
+                } else if (error.message.includes("permission") || error.code === 401 || error.code === 403) {
+                    publicError = "Registration failed. Check 'users' collection permissions.";
+                } else if (error.message.includes("not found") || error.code === 404) {
+                    publicError = "Registration failed. Database or Collection ID is wrong.";
+                } else if (error.message.includes("Column") || error.message.includes("Attribute")) {
+                     publicError = "Registration failed. 'users' collection is missing the 'name' column.";
+                }
+
+                showError(publicError);
+
+                // If auth user was created but DB doc failed, delete the auth user to prevent loop
+                if (newUser && error.message.includes("database")) {
+                    console.log("Rolling back: Deleting created auth user...");
+                    await account.delete(newUser.$id);
+                    console.log("Rollback complete.");
+                }
             }
         }
 
@@ -262,7 +288,6 @@
                 await account.deleteSession('current');
                 currentUser = null;
                 showView('login');
-                // Unsubscribe from real-time feeds
                 unsubscribePosts();
                 unsubscribeChats();
             } catch (error) {
@@ -297,7 +322,7 @@
                 }
             } catch (error) {
                 console.error("Error loading posts:", error);
-                loadingStateEl.textContent = "Error loading feed. Check collection permissions.";
+                loadingStateEl.textContent = "Error loading feed. Check 'posts' collection permissions.";
             }
         }
 
@@ -312,7 +337,7 @@
                     <span>${postDate}</span>
                 </div>
             `;
-            feedEl.prepend(postEl); // Add new posts to the top
+            feedEl.prepend(postEl); 
         }
 
         async function handleAddPost() {
@@ -328,14 +353,13 @@
                     {
                         text: postText,
                         authorId: currentUser.$id,
-                        authorName: currentUser.name // Store the name for easy display
+                        authorName: currentUser.name 
                     }
-                    // Permissions are inherited from the 'posts' collection (public)
                 );
                 postTextEl.value = '';
             } catch (error) {
                 console.error("Error adding post:", error);
-                showError("Error saving post.");
+                showError("Error saving post. Check 'posts' collection permissions.");
             } finally {
                 postButtonEl.disabled = false;
             }
@@ -364,7 +388,7 @@
                 );
                 userListEl.innerHTML = '';
                 response.documents
-                    .filter(user => user.$id !== currentUser.$id) // Don't list yourself
+                    .filter(user => user.$id !== currentUser.$id) 
                     .forEach(user => {
                         const userEl = document.createElement('button');
                         userEl.className = 'block w-full text-left p-3 bg-gray-50 hover:bg-yellow-100 rounded-lg user-item';
@@ -375,7 +399,7 @@
                 loadingUsersEl.style.display = 'none';
             } catch (error) {
                 console.error("Error loading users:", error);
-                loadingUsersEl.textContent = "Error loading users.";
+                loadingUsersEl.textContent = "Error loading users. Check 'users' collection permissions.";
             }
         }
 
@@ -387,7 +411,6 @@
             chatPromptEl.textContent = 'Loading messages...';
             chatInputArea.classList.remove('hidden');
 
-            // This is the query that requires the TWO separate indexes
             try {
                 const response = await databases.listDocuments(
                     APPWRITE_DATABASE_ID,
@@ -423,16 +446,15 @@
             chatPromptEl.style.display = 'none';
             const msgEl = document.createElement('div');
             
-            // Check senderId to see if "isMe"
             const isMe = message.senderId === currentUser.$id;
             
             msgEl.className = `p-3 rounded-lg max-w-xs ${isMe ? 'bg-yellow-200 ml-auto' : 'bg-gray-200'}`;
             msgEl.innerHTML = `<p>${escapeHTML(message.message)}</p>`;
             if (isNew) {
-                msgEl.classList.add('message'); // Add animation
+                msgEl.classList.add('message'); 
             }
             chatMessagesEl.appendChild(msgEl);
-            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight; // Auto-scroll
+            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight; 
         }
 
         async function handleSendMessage() {
@@ -441,7 +463,6 @@
 
             chatSendButton.disabled = true;
             try {
-                // Create the chat document
                 await databases.createDocument(
                     APPWRITE_DATABASE_ID,
                     APPWRITE_CHATS_COLLECTION_ID,
@@ -452,7 +473,6 @@
                         receiverId: selectedChatUserId
                     },
                     [
-                        // IMPORTANT: Only the sender and receiver can read this message
                         Permission.read(Role.user(currentUser.$id)),
                         Permission.read(Role.user(selectedChatUserId))
                     ]
@@ -467,14 +487,11 @@
         }
 
         function subscribeToChats() {
-            // This function listens for ANY new chat message
             unsubscribeChats = client.subscribe(
                 `databases.${APPWRITE_DATABASE_ID}.collections.${APPWRITE_CHATS_COLLECTION_ID}.documents`,
                 response => {
                     if (response.events.includes("databases.*.collections.*.documents.*.create")) {
                         const message = response.payload;
-                        
-                        // Check if the new message is part of the currently open chat
                         const { senderId, receiverId } = message;
                         
                         if (selectedChatUserId &&
